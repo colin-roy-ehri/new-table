@@ -2,9 +2,12 @@ const path = require("path");
 
 module.exports = {
   mode: "production",
-  entry: "./src/customVis",
+  entry: {
+    table: "./src/customVis.js",
+    bell: "./src/bell.js",
+  },
   output: {
-    filename: "custom_table.js",
+    filename: "[name].js",
     path: path.resolve(__dirname, "dist"),
   },
   module: {
