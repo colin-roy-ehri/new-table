@@ -2,15 +2,24 @@ const path = require("path");
 
 module.exports = {
   mode: "development",
-  entry: "./src/customVis.js",
+  entry: {
+    table: "./src/customVis.js",
+    bell: "./src/bell.js",
+  },
   devServer: {
     static: "./dist",
     https: true,
     port: 8080,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+      "Access-Control-Allow-Headers": "X-Requested-With, content-type, Authorization"
+    }
   },
   output: {
-    filename: "bundle.js",
+    filename: "[name].bundle.js",
     path: path.resolve(__dirname, "dist"),
+    
   },
   module: {
     rules: [
