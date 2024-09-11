@@ -37,6 +37,12 @@ looker.plugins.visualizations.add({
       order: 5,
       section: "Styles"
     },
+    groupByMeasure: {
+      type: "boolean",
+      label: "Group by Measure then Pivot",
+      default: false,
+      section: "Styles"
+    },
   },
 
 
@@ -65,6 +71,22 @@ looker.plugins.visualizations.add({
             };
           }
         });
+        // If there are pivots, I want to also add rename options for the pivot values
+        if (queryResponse.pivots && queryResponse.pivots.length > 0) {
+          queryResponse.pivots.forEach((pivot, index) => {
+            
+              const configKey = `rename_${pivot.key}`;
+              if (!options[configKey]) {
+                options[configKey] = {
+                  type: "string",
+                  label: `Rename pivot value: ${pivot.key}`,
+                  default: pivot.key,
+                  order: 20 + index + columnNames.length,
+                  section: "Labels",
+                };
+              }
+          });
+        }
         // register the options with the visualization
         this.trigger("registerOptions", options);
 console.log('queryResponse', queryResponse)

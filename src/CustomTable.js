@@ -1,6 +1,6 @@
 import React, { cloneElement, useMemo, useState, useEffect, useRef } from "react";
 import styled from "styled-components";
-import { useTable, useBlockLayout, useResizeColumns, useSortBy } from "react-table";
+import { useTable, useBlockLayout, useFlexLayout, useResizeColumns, useSortBy } from "react-table";
 
 import "bootstrap/dist/css/bootstrap.min.css";
 
@@ -58,6 +58,11 @@ const Styles = ({ children, config, rowCount }) => {
     body {
       font-family: "IBM Plex Sans" !important;
     }
+    .measure-header {
+      text-align: center;
+      pointer-events: none;
+      cursor: default;
+      }
     thead tr {
       ${headerStyles}
     }
@@ -99,7 +104,7 @@ function Table({ columns, data, config }) {
         defaultCanSort: true,
       },
       useSortBy,
-      useBlockLayout,
+      useFlexLayout,
       useResizeColumns
     );
 
@@ -119,7 +124,7 @@ function Table({ columns, data, config }) {
             {headerGroups.map((headerGroup) => (
               <tr {...headerGroup.getHeaderGroupProps()} className="tr">
                 {headerGroup.headers.map((column) => (
-                  <th {...column.getHeaderProps(column.getSortByToggleProps())} className="th">
+                  <th {...column.getHeaderProps(column.getSortByToggleProps())} className={`th ${column.headerClassName || ''}`}>
                     {column.render("Header")}
                     <span>
                       {column.isSorted ? "⇅" : " "}
@@ -196,46 +201,93 @@ export const CustomTable = ({ data, config, queryResponse, details, done }) => {
         const dimensionHeaders = dimensionKeys.map((key) => {
           return keyHeaderMapFunction(key, config)
         })
-        const pivotColumnHeaders = pivotKeys.map((pivotKey) => {
-          const labelWithPivotInsteadOfMeasure = measureKeys.length === 1;
-          const isTotal = pivotKey === "$$$_row_total_$$$";
-          console.log("isTotal", isTotal)
-          console.log("pivotKey", pivotKey)
-          console.log("labelWithPivotInsteadOfMeasure", labelWithPivotInsteadOfMeasure)
-          console.log("measureKeys", measureKeys)
-          return measureKeys.map((measureKey) => {
+        if (config.groupByMeasure) {
+          // Group pivot values by measure
+          const pivotColumnHeaders = measureKeys.map((measureKey) => {
             const measure = queryResponse.fields.measure_like.find(
               (measure) => measure.name === measureKey
             );
-            const pivotValue = pivotKeys.length > 1 ? pivotKey : "";
-            const accessor = (d) => d[measureKey]?.[pivotValue]?.value;
-            const header = labelWithPivotInsteadOfMeasure
-              ? isTotal ? 'Total' : `${pivotKey}`
-              : `${measure.label} (${pivotKey})`;
+  
+            const measureLabel = config[`rename_${measureKey}`] || measure.label;
+            const subColumns = pivotKeys.map((pivotKey) => {
+              const isTotal = pivotKey === "$$$_row_total_$$$";
+              const pivotValue = pivotKeys.length > 1 ? pivotKey : "";
+              const accessor = (d) => d[measureKey]?.[pivotValue]?.value;
+              const pivotName = config[`rename_${pivotKey}`] || pivotKey;
+              const header = isTotal ? 'Total' : `${pivotName}`;
+              const id = `${measureKey}_${pivotKey}`; // Ensure unique ID
+
+              return {
+                Header: header,
+                accessor,
+                id,
+                sortable: true,
+                sortType: "basic",
+                Cell: ({ cell }) => {
+                  const row = cell.row.original;
+                  return row[measureKey]?.[pivotValue]?.html ? (
+                    <span
+                      dangerouslySetInnerHTML={{
+                        __html: row[measureKey][pivotValue].html,
+                      }}
+                    />
+                  ) : (
+                    row[measureKey]?.[pivotValue]?.rendered ||
+                    row[measureKey]?.[pivotValue]?.value
+                  );
+                },
+              };
+            });
+  
             return {
-              Header: header,
-              accessor,
-              sortable: true,
-              sortType: "basic",
-              Cell: ({ cell }) => {
-                const row = cell.row.original;
-                return row[measureKey]?.[pivotValue]?.html ? (
-                  <span
-                    dangerouslySetInnerHTML={{
-                      __html: row[measureKey][pivotValue].html,
-                    }}
-                  />
-                ) : (
-                  row[measureKey]?.[pivotValue]?.rendered ||
-                  row[measureKey]?.[pivotValue]?.value
-                );
-              },
+              Header: measureLabel,
+              columns: subColumns,
+              sortable: false,
+              headerClassName: "measure-header",
+              className: "measure-header",
             };
           });
-        });
-        return [...dimensionHeaders, ...pivotColumnHeaders.flat()];
-        // return pivotColumns.flat();
-
+  
+          return [...dimensionHeaders, ...pivotColumnHeaders];
+        } else {
+          // Flat structure without grouping
+          const pivotColumnHeaders = pivotKeys.map((pivotKey) => {
+            return measureKeys.map((measureKey) => {
+              const measure = queryResponse.fields.measure_like.find(
+                (measure) => measure.name === measureKey
+              );
+              const measureLabel = config[`rename_${measureKey}`] || measure.label;
+              const pivotValue = pivotKeys.length > 1 ? pivotKey : "";
+              const pivotName = config[`rename_${pivotKey}`] || pivotKey;
+             
+              const accessor = (d) => d[measureKey]?.[pivotValue]?.value;
+              const header = `${measureLabel} (${pivotName})`;
+              const id = `${measureKey}_${pivotKey}`; // Ensure unique ID
+  
+              return {
+                Header: header,
+                accessor,
+                id,
+                sortable: true,
+                sortType: "basic",
+                Cell: ({ cell }) => {
+                  const row = cell.row.original;
+                  return row[measureKey]?.[pivotValue]?.html ? (
+                    <span
+                      dangerouslySetInnerHTML={{
+                        __html: row[measureKey][pivotValue].html,
+                      }}
+                    />
+                  ) : (
+                    row[measureKey]?.[pivotValue]?.rendered ||
+                    row[measureKey]?.[pivotValue]?.value
+                  );
+                },
+              };
+            });
+          });
+          return [...dimensionHeaders, ...pivotColumnHeaders.flat()];
+        }
       } else {
         return validFieldKeys.map((key) => {
           return keyHeaderMapFunction(key, config)
