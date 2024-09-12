@@ -163,9 +163,22 @@ function Table({ columns, data, config }) {
               prepareRow(row);
               return (
                 <tr {...row.getRowProps()} className="tr">
-                  {row.cells.map((cell) => {
+                  {row.cells.map((cell,i) => {
+                   
+                    const cellProps = cell.getCellProps();
+                    const customProps = cell.column?.getCellProps ? cell.column?.getCellProps(cell) : null;
+                  
+                    if (customProps ) {
+                      const mergedStyles = { ...cellProps.style, ...customProps.style };
+                      cellProps.style = mergedStyles;
+                      return (
+                        <td {...cellProps}  className="td">
+                          {cell.render("Cell")}
+                        </td>
+                      );
+                    } else 
                     return (
-                      <td {...cell.getCellProps()} className="td">
+                      <td {...cellProps} className="td">
                         {cell.render("Cell")}
                       </td>
                     );
@@ -190,44 +203,43 @@ const keyHeaderMapFunction = (key, config, measureKeys) => {
     accessor: (d) => d[key]?.value,
     sortable: true,
     sortType: "basic",
-    Cell: ({ cell }) => {
-      const row = cell.row.original;
-      let style = {}
-      measureKeys.forEach((otherMeasureKey) => {
-        if (otherMeasureKey === key) return;
-        const conditionalKey = `conditional_styles_${otherMeasureKey}`;
+    getCellProps: (cellInfo) => {
+      const row = cellInfo.row.original;
+      let style = {};
+      measureKeys.forEach((measureKey) => {
+        const conditionalKey = `conditional_styles_${measureKey}`;
         const isThisMeasureConditional = config[conditionalKey] === key;
         if (isThisMeasureConditional) {
-          const conditionalValue = row[otherMeasureKey]?.value;
-          console.log("conditionalValue", conditionalValue)
+          const conditionalValue = row[measureKey]?.value;
           if (['Yes', 'true', '1'].includes(conditionalValue)) {
             const conditionalHighlightStyle = parseCSSString(config.conditionalHighlightStyle);
             style = { ...style, ...conditionalHighlightStyle };
-            console.log("applied style", style)
           }
         }
       });
-      return (
-        <div style={style}>
-          {row[key]?.html ? (
-        <span dangerouslySetInnerHTML={{ __html: row[key].html }} />
-      ) : (
-        row[key]?.rendered || row[key]?.value
-      )}</div>);
+      return { style };
+    },
+    Cell: ({ cell }) => {
+      const row = cell.row.original;     
+      return row[key]?.html ? (
+            <span dangerouslySetInnerHTML={{ __html: row[key].html }} />
+          ) : (
+            row[key]?.rendered || row[key]?.value
+          )
     },
   };
 }
 
-  // Function to parse CSS string into an object
-  const parseCSSString = (cssString) => {
-    return cssString.split(';').reduce((acc, style) => {
-      if (style.trim()) {
-        const [key, value] = style.split(':');
-        acc[key.trim()] = value.trim();
-      }
-      return acc;
-    }, {});
-  };
+// Function to parse CSS string into an object
+const parseCSSString = (cssString) => {
+  return cssString.split(';').reduce((acc, style) => {
+    if (style.trim()) {
+      const [key, value] = style.split(':');
+      acc[key.trim()] = value.trim();
+    }
+    return acc;
+  }, {});
+};
 
 export const CustomTable = ({ data, config, queryResponse, details, done }) => {
 
@@ -236,29 +248,22 @@ export const CustomTable = ({ data, config, queryResponse, details, done }) => {
   const measureKeys = queryResponse.fields.measure_like ? queryResponse.fields.measure_like.map((measure) => measure.name) : [];
   const pivotKeys = queryResponse.pivots ? queryResponse.pivots.map((pivot) => pivot.key) : [];
   const validFieldKeys = [...dimensionKeys, ...measureKeys]
-  // Filter out the keys that have are conditional configuration indicator booleans
-  .filter((key) => {
-    const conditionalKey = `conditional_styles_${key}`;
-    const isAConditionalKey = config[conditionalKey] && config[conditionalKey] != 'none' && config[conditionalKey] != '' 
-    return !isAConditionalKey;
-  })
+    // Filter out the keys that have are conditional configuration indicator booleans
+    .filter((key) => {
+      const conditionalKey = `conditional_styles_${key}`;
+      const isAConditionalKey = config[conditionalKey] && config[conditionalKey] != 'none' && config[conditionalKey] != ''
+      return !isAConditionalKey;
+    })
   console.log(data)
   console.log("Object.keys(firstData)", Object.keys(firstData));
-
+  
   const columns = useMemo(
-    () =>
-    // begin handling the pivot use case, which is contained in queryResponse.pivots
-    // If there are pivots, teh accessors for fields in measures need a pivot after the vield name. 
-    // And we need to make a column for each pivot/measure combination. 
-    // The pivots should each have multiple columns (one for each measure) 
-    {
+    () => {
       if (pivotKeys.length > 0) {
         const dimensionHeaders = dimensionKeys.map((key) => {
           return keyHeaderMapFunction(key, config, measureKeys)
         })
         if (config.groupByMeasure) {
-          // Group pivot values by measure
-          // filtering out the ones with a conditionalKey
           const pivotColumnHeaders = measureKeys.filter((measureKey) => {
             const conditionalKey = `conditional_styles_${measureKey}`;
             const conditionalColumn = config[conditionalKey];
@@ -268,7 +273,7 @@ export const CustomTable = ({ data, config, queryResponse, details, done }) => {
             const measure = queryResponse.fields.measure_like.find(
               (measure) => measure.name === measureKey
             );
-
+  
             const measureLabel = config[`rename_${measureKey}`] || measure.label;
             const subColumns = pivotKeys.map((pivotKey) => {
               const isTotal = pivotKey === "$$$_row_total_$$$";
@@ -277,46 +282,47 @@ export const CustomTable = ({ data, config, queryResponse, details, done }) => {
               const pivotName = config[`rename_${pivotKey}`] || pivotKey;
               const header = isTotal ? 'Total' : `${pivotName}`;
               const id = `${measureKey}_${pivotKey}`; // Ensure unique ID
-
+  
               return {
                 Header: header,
                 accessor,
                 id,
                 sortable: true,
                 sortType: "basic",
-                Cell: ({ cell }) => {
-                  const row = cell.row.original;
+                getCellProps: (cellInfo) => {
+                  const row = cellInfo.row.original;
                   const cellValue = row[measureKey]?.[pivotValue]?.rendered ?? row[measureKey]?.[pivotValue]?.value;
                   let style = {};
+                  console.log("running getCellProps for real", row)
                   measureKeys.forEach((otherMeasureKey) => {
                     if (otherMeasureKey === measureKey) return;
                     const conditionalKey = `conditional_styles_${otherMeasureKey}`;
                     const isThisMeasureConditional = config[conditionalKey] === measureKey;
                     if (isThisMeasureConditional) {
                       const conditionalValue = row[otherMeasureKey]?.[pivotValue]?.value;
-                      console.log("conditionalValue", conditionalValue)
                       if (['Yes', 'true', '1'].includes(conditionalValue)) {
                         const conditionalHighlightStyle = parseCSSString(config.conditionalHighlightStyle);
                         style = { ...style, ...conditionalHighlightStyle };
-                        console.log("applied style", style)
                       }
                     }
                   });
-                  return (
-                    <div style={style}>
-                      {row[measureKey]?.[pivotValue]?.html ? (
-                        <span
-                          dangerouslySetInnerHTML={{
-                            __html: row[measureKey][pivotValue].html,
-                          }}
-                        />
-                      ) : (cellValue)}
-                    </div>
-                  )
+                  // return null if no style
+                  if (Object.keys(style).length === 0) return null;
+                  return { style };
+                },
+                Cell: ({ cell }) => {
+                  const row = cell.row.original;
+                  return row[measureKey]?.[pivotValue]?.html ? (
+                    <span
+                      dangerouslySetInnerHTML={{
+                        __html: row[measureKey][pivotValue].html,
+                      }}
+                    />
+                  ) : (row[measureKey]?.[pivotValue]?.rendered ?? row[measureKey]?.[pivotValue]?.value);
                 },
               };
             });
-
+  
             return {
               Header: measureLabel,
               columns: subColumns,
@@ -325,18 +331,14 @@ export const CustomTable = ({ data, config, queryResponse, details, done }) => {
               className: "measure-header",
             };
           });
-
+  
           return [...dimensionHeaders, ...pivotColumnHeaders];
         } else {
-          // Flat structure without grouping
-          //  apply similar filter logic here
-          const pivotColumnHeaders = pivotKeys
-          .map((pivotKey) => {
+          const pivotColumnHeaders = pivotKeys.map((pivotKey) => {
             return measureKeys.filter((measureKey) => {
               const conditionalKey = `conditional_styles_${measureKey}`;
               const conditionalColumn = config[conditionalKey];
               const hasConditionalStyle = conditionalColumn && conditionalColumn !== 'none';
-              console.log('conditionalKey', conditionalKey, 'conditionalColumn', conditionalColumn, 'hasConditionalStyle', hasConditionalStyle)
               return !hasConditionalStyle;
             }).map((measureKey) => {
               const measure = queryResponse.fields.measure_like.find(
@@ -345,49 +347,45 @@ export const CustomTable = ({ data, config, queryResponse, details, done }) => {
               const measureLabel = config[`rename_${measureKey}`] || measure.label;
               const pivotValue = pivotKeys.length > 1 ? pivotKey : "";
               const pivotName = config[`rename_${pivotKey}`] || pivotKey;
-
+  
               const accessor = (d) => d[measureKey]?.[pivotValue]?.value;
               const header = `${measureLabel} (${pivotName})`;
               const id = `${measureKey}_${pivotKey}`; // Ensure unique ID
-
-              
+  
               return {
                 Header: header,
                 accessor,
                 id,
                 sortable: true,
                 sortType: "basic",
-                Cell: ({ cell }) => {
-                  const row = cell.row.original;
-
+                getCellProps: (cellInfo) => {
+                  const row = cellInfo.row.original;
                   const cellValue = row[measureKey]?.[pivotValue]?.rendered ?? row[measureKey]?.[pivotValue]?.value;
-                  // Apply conditional highlight style if the condition is met
                   let style = {};
+                  console.log("running getCellProps for real", row)
                   measureKeys.forEach((otherMeasureKey) => {
                     if (otherMeasureKey === measureKey) return;
                     const conditionalKey = `conditional_styles_${otherMeasureKey}`;
                     const isThisMeasureConditional = config[conditionalKey] === measureKey;
                     if (isThisMeasureConditional) {
                       const conditionalValue = row[otherMeasureKey]?.[pivotValue]?.value;
-                      console.log("conditionalValue", conditionalValue)
                       if (['Yes', 'true', '1'].includes(conditionalValue)) {
                         const conditionalHighlightStyle = parseCSSString(config.conditionalHighlightStyle);
                         style = { ...style, ...conditionalHighlightStyle };
-                        console.log("applied style", style)
                       }
                     }
                   });
-
-                  return (
-                    <div style={style}>
-                      {row[measureKey]?.[pivotValue]?.html ? (
-                        <span
-                          dangerouslySetInnerHTML={{
-                            __html: row[measureKey][pivotValue].html,
-                          }}
-                        />
-                      ) : (cellValue)}
-                    </div>);
+                  return { style };
+                },
+                Cell: ({ cell }) => {
+                  const row = cell.row.original;
+                  return row[measureKey]?.[pivotValue]?.html ? (
+                    <span
+                      dangerouslySetInnerHTML={{
+                        __html: row[measureKey][pivotValue].html,
+                      }}
+                    />
+                  ) : (row[measureKey]?.[pivotValue]?.rendered ?? row[measureKey]?.[pivotValue]?.value);
                 },
               };
             });
@@ -402,7 +400,6 @@ export const CustomTable = ({ data, config, queryResponse, details, done }) => {
     },
     [firstData, config]
   );
-
   console.log("columns", columns)
 
   return (
