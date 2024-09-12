@@ -7,7 +7,7 @@ import { CustomTable } from "./CustomTable";
 looker.plugins.visualizations.add({
   options: {
 
-    marg: {
+    headerStyles: {
       type: "string",
       label: "Header CSS Styles",
       order: 1,
@@ -22,7 +22,7 @@ looker.plugins.visualizations.add({
     generalCSS: {
       type: "string",
       label: "Genral CSS Overrides",
-      order: 2,
+      order: 3,
       section: "Styles"
     },
     borderBetweenColumns: {
@@ -43,6 +43,13 @@ looker.plugins.visualizations.add({
       default: false,
       section: "Styles"
     },
+    conditionalHighlightStyle: {
+      type: "string",
+      label: "Conditional Highlight Style",
+      section: "Conditional",
+      order: 1
+    },
+    
   },
 
 
@@ -68,6 +75,21 @@ looker.plugins.visualizations.add({
               default: colName,
               order: 10 + index,
               section: "Labels",
+            };
+          }
+        });
+        columnNames.forEach((colName, index) => {
+          const configKey = `conditional_styles_${colName}`;
+          if (!options[configKey]) {
+            options[configKey] = {
+              type: "string",
+              label: `${colName} formats this column:`,
+              default: colName,
+              display: "select",
+              values: [{'none':'None'},...columnNames.map((col) => ({ [col]: col }))],
+              order: 10 + index,
+              section: "Conditional",
+              default: 'none'
             };
           }
         });
