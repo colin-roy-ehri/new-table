@@ -1,6 +1,7 @@
 import React, { cloneElement, useMemo, useState, useEffect, useRef } from "react";
 import styled from "styled-components";
-import { useTable, useBlockLayout, useFlexLayout, useResizeColumns, useSortBy } from "react-table";
+import { useTable, useBlockLayout, useFlexLayout, useResizeColumns } from "react-table";
+import { Sparklines, SparklinesLine } from 'react-sparklines';
 
 import "bootstrap/dist/css/bootstrap.min.css";
 
@@ -38,8 +39,7 @@ const generateRowBordersCSS = (rowBorders, rowCount) => {
 
 // Move the styled component definition outside of the Styles component
 const StyledWrapper = styled.div`
-  @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@100;300;500;600;700&family=Open+Sans:ital,wght@0,300;0,400;0,500;1,300&family=Roboto:wght@100;500;700&display=swap");
-  @import url("https://kit-pro.fontawesome.com/releases/v5.15.1/css/pro.min.css");
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
   #vis-container {
     height: 100%;
@@ -47,14 +47,14 @@ const StyledWrapper = styled.div`
     width: 100%;
     display: flex;
     flex-direction: column;
-    font-family: "IBM Plex Sans";
-    font-weight: 300;
+    font-family: "Inter", sans-serif;
+    font-weight: 400;
   }
   #vis {
     min-height: 500px;
   }
   body {
-    font-family: "IBM Plex Sans" !important;
+    font-family: "Inter", sans-serif !important;
   }
   .measure-header {
     text-align: center;
@@ -76,11 +76,46 @@ const StyledWrapper = styled.div`
   tbody > tr > td {
     ${(props) => props.rowStyles}
     vertical-align: middle;
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+  }
+
+  .td {
+    display: flex;
+    align-items: center;
   }
 
   ${(props) => props.columnBordersCSS}
   ${(props) => props.rowBordersCSS}
   ${(props) => props.generalCSS}
+`;
+
+const TableTitle = styled.h2`
+  font-family: "Inter", sans-serif;
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+`;
+
+const PercentageBarContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+`;
+
+const PercentageBar = styled.div`
+  width: 100px;
+  height: 12px;
+  background-color: ${props => props.backgroundColor};
+  border-radius: 6px;
+  overflow: hidden;
+`;
+
+const PercentageFill = styled.div`
+  height: 100%;
+  width: ${props => props.width}%;
+  background-color: ${props => props.barColor};
 `;
 
 const Styles = ({ children, config, rowCount }) => {
@@ -120,16 +155,12 @@ function Table({ columns, data, config }) {
         columns,
         data,
         defaultColumn,
-        disableSortRemove: true,
-        defaultCanSort: true,
+        // Remove sorting options
       },
-      useSortBy,
+      // Remove useSortBy,
       useFlexLayout,
       useResizeColumns
     );
-
-
-
 
   return (
     <>
@@ -144,11 +175,9 @@ function Table({ columns, data, config }) {
             {headerGroups.map((headerGroup) => (
               <tr {...headerGroup.getHeaderGroupProps()} className="tr">
                 {headerGroup.headers.map((column) => (
-                  <th {...column.getHeaderProps(column.getSortByToggleProps())} className={`th ${column.headerClassName || ''}`}>
+                  <th {...column.getHeaderProps()} className={`th ${column.headerClassName || ''}`}>
                     {column.render("Header")}
-                    <span>
-                      {column.isSorted ? "⇅" : " "}
-                    </span>
+                    {/* Remove sort indicator */}
                     <div
                       {...column.getResizerProps()}
                       className={`resizer ${column.isResizing ? "isResizing" : ""}`}
@@ -241,179 +270,171 @@ const parseCSSString = (cssString) => {
   }, {});
 };
 
-export const CustomTable = ({ data, config, queryResponse, details, done }) => {
+const getMonthData = (data, dimensionKeys) => {
+  const serviceKey = dimensionKeys[0];
+  const dateKey = dimensionKeys[1];
+  const revenueKey = Object.keys(data[0]).find(key => !dimensionKeys.includes(key));
 
-  const [firstData = {}] = data;
+  // Group by service and date
+  const groupedData = data.reduce((acc, row) => {
+    const service = row[serviceKey].value;
+    const date = row[dateKey].value;
+    const revenue = row[revenueKey].value || 0;
+
+    if (!acc[service]) {
+      acc[service] = {};
+    }
+    acc[service][date] = revenue;
+    return acc;
+  }, {});
+
+  return { groupedData, revenueKey };
+};
+
+const getLatestMonth = (dates) => {
+  return dates.sort((a, b) => new Date(b) - new Date(a))[0];
+};
+
+const getLast12Months = (data, service, dates, latestMonth) => {
+  const sortedDates = dates.sort((a, b) => new Date(b) - new Date(a));
+  const last12Dates = sortedDates.slice(0, 12).reverse();
+  return last12Dates.map(date => data[service]?.[date] || 0);
+};
+
+const processUniqueServices = (data, dimensionKeys, groupedData, latestMonth) => {
+  const serviceKey = dimensionKeys[0];
+  // Get unique services and their latest revenue
+  const servicesWithRevenue = [...new Set(data.map(row => row[serviceKey].value))]
+    .map(service => ({
+      service,
+      revenue: groupedData[service]?.[latestMonth] || 0
+    }));
+  
+  // Sort by revenue descending
+  servicesWithRevenue.sort((a, b) => b.revenue - a.revenue);
+  
+  // Create one row per service, maintaining the sorted order
+  return servicesWithRevenue.map(({ service }) => ({
+    [serviceKey]: { value: service }
+  }));
+};
+
+const getTrend = (data) => {
+  if (data.length < 2) return 'up';
+  const last = data[data.length - 1];
+  const secondLast = data[data.length - 2];
+  return last >= secondLast ? 'up' : 'down';
+};
+
+export const CustomTable = ({ data, config, queryResponse, details, done }) => {
   const dimensionKeys = queryResponse.fields.dimension_like ? queryResponse.fields.dimension_like.map((dim) => dim.name) : [];
-  const measureKeys = queryResponse.fields.measure_like ? queryResponse.fields.measure_like.map((measure) => measure.name) : [];
-  const pivotKeys = queryResponse.pivots ? queryResponse.pivots.map((pivot) => pivot.key) : [];
-  const validFieldKeys = [...dimensionKeys, ...measureKeys]
-    // Filter out the keys that have are conditional configuration indicator booleans
-    .filter((key) => {
-      const conditionalKey = `conditional_styles_${key}`;
-      const isAConditionalKey = config[conditionalKey] && config[conditionalKey] != 'none' && config[conditionalKey] != ''
-      return !isAConditionalKey;
-    })
-  console.log(data)
-  console.log("Object.keys(firstData)", Object.keys(firstData));
   
-  const columns = useMemo(
-    () => {
-      if (pivotKeys.length > 0) {
-        const dimensionHeaders = dimensionKeys.map((key) => {
-          return keyHeaderMapFunction(key, config, measureKeys)
-        })
-        if (config.groupByMeasure) {
-          const pivotColumnHeaders = measureKeys.filter((measureKey) => {
-            const conditionalKey = `conditional_styles_${measureKey}`;
-            const conditionalColumn = config[conditionalKey];
-            const hasConditionalStyle = conditionalColumn && conditionalColumn !== 'none';
-            return !hasConditionalStyle;
-          }).map((measureKey) => {
-            const measure = queryResponse.fields.measure_like.find(
-              (measure) => measure.name === measureKey
-            );
-  
-            const measureLabel = config[`rename_${measureKey}`] || measure.label;
-            const subColumns = pivotKeys.map((pivotKey) => {
-              const isTotal = pivotKey === "$$$_row_total_$$$";
-              const pivotValue = pivotKeys.length > 1 ? pivotKey : "";
-              const accessor = (d) => d[measureKey]?.[pivotValue]?.value;
-              const pivotName = config[`rename_${pivotKey}`] || pivotKey;
-              const header = isTotal ? 'Total' : `${pivotName}`;
-              const id = `${measureKey}_${pivotKey}`; // Ensure unique ID
-  
-              return {
-                Header: header,
-                accessor,
-                id,
-                sortable: true,
-                sortType: "basic",
-                getCellProps: (cellInfo) => {
-                  const row = cellInfo.row.original;
-                  const cellValue = row[measureKey]?.[pivotValue]?.rendered ?? row[measureKey]?.[pivotValue]?.value;
-                  let style = {};
-                  console.log("running getCellProps for real", row)
-                  measureKeys.forEach((otherMeasureKey) => {
-                    if (otherMeasureKey === measureKey) return;
-                    const conditionalKey = `conditional_styles_${otherMeasureKey}`;
-                    const isThisMeasureConditional = config[conditionalKey] === measureKey;
-                    if (isThisMeasureConditional) {
-                      const conditionalValue = row[otherMeasureKey]?.[pivotValue]?.value;
-                      if (['Yes', 'true', '1'].includes(conditionalValue)) {
-                        const conditionalHighlightStyle = parseCSSString(config.conditionalHighlightStyle);
-                        style = { ...style, ...conditionalHighlightStyle };
-                      }
-                    }
-                  });
-                  // return null if no style
-                  if (Object.keys(style).length === 0) return null;
-                  return { style };
-                },
-                Cell: ({ cell }) => {
-                  const row = cell.row.original;
-                  return row[measureKey]?.[pivotValue]?.html ? (
-                    <span
-                      dangerouslySetInnerHTML={{
-                        __html: row[measureKey][pivotValue].html,
-                      }}
-                    />
-                  ) : (row[measureKey]?.[pivotValue]?.rendered ?? row[measureKey]?.[pivotValue]?.value);
-                },
-              };
-            });
-  
-            return {
-              Header: measureLabel,
-              columns: subColumns,
-              sortable: false,
-              headerClassName: "measure-header",
-              className: "measure-header",
-            };
-          });
-  
-          return [...dimensionHeaders, ...pivotColumnHeaders];
-        } else {
-          const pivotColumnHeaders = pivotKeys.map((pivotKey) => {
-            return measureKeys.filter((measureKey) => {
-              const conditionalKey = `conditional_styles_${measureKey}`;
-              const conditionalColumn = config[conditionalKey];
-              const hasConditionalStyle = conditionalColumn && conditionalColumn !== 'none';
-              return !hasConditionalStyle;
-            }).map((measureKey) => {
-              const measure = queryResponse.fields.measure_like.find(
-                (measure) => measure.name === measureKey
-              );
-              const measureLabel = config[`rename_${measureKey}`] || measure.label;
-              const pivotValue = pivotKeys.length > 1 ? pivotKey : "";
-              const pivotName = config[`rename_${pivotKey}`] || pivotKey;
-  
-              const accessor = (d) => d[measureKey]?.[pivotValue]?.value;
-              const header = `${measureLabel} (${pivotName})`;
-              const id = `${measureKey}_${pivotKey}`; // Ensure unique ID
-  
-              return {
-                Header: header,
-                accessor,
-                id,
-                sortable: true,
-                sortType: "basic",
-                getCellProps: (cellInfo) => {
-                  const row = cellInfo.row.original;
-                  const cellValue = row[measureKey]?.[pivotValue]?.rendered ?? row[measureKey]?.[pivotValue]?.value;
-                  let style = {};
-                  console.log("running getCellProps for real", row)
-                  measureKeys.forEach((otherMeasureKey) => {
-                    if (otherMeasureKey === measureKey) return;
-                    const conditionalKey = `conditional_styles_${otherMeasureKey}`;
-                    const isThisMeasureConditional = config[conditionalKey] === measureKey;
-                    if (isThisMeasureConditional) {
-                      const conditionalValue = row[otherMeasureKey]?.[pivotValue]?.value;
-                      if (['Yes', 'true', '1'].includes(conditionalValue)) {
-                        const conditionalHighlightStyle = parseCSSString(config.conditionalHighlightStyle);
-                        style = { ...style, ...conditionalHighlightStyle };
-                      }
-                    }
-                  });
-                  return { style };
-                },
-                Cell: ({ cell }) => {
-                  const row = cell.row.original;
-                  return row[measureKey]?.[pivotValue]?.html ? (
-                    <span
-                      dangerouslySetInnerHTML={{
-                        __html: row[measureKey][pivotValue].html,
-                      }}
-                    />
-                  ) : (row[measureKey]?.[pivotValue]?.rendered ?? row[measureKey]?.[pivotValue]?.value);
-                },
-              };
-            });
-          });
-          return [...dimensionHeaders, ...pivotColumnHeaders.flat()];
-        }
-      } else {
-        return validFieldKeys.map((key) => {
-          return keyHeaderMapFunction(key, config, measureKeys)
-        })
-      }
-    },
-    [firstData, config]
+  const { groupedData, revenueKey } = useMemo(() => 
+    getMonthData(data, dimensionKeys), 
+    [data, dimensionKeys]
   );
+
+  const allDates = useMemo(() => {
+    return [...new Set(data.map(row => row[dimensionKeys[1]].value))];
+  }, [data, dimensionKeys]);
+
+  const latestMonth = useMemo(() => getLatestMonth(allDates), [allDates]);
+
+  // Move processedData after groupedData and latestMonth are calculated
+  const processedData = useMemo(() => 
+    processUniqueServices(data, dimensionKeys, groupedData, latestMonth),
+    [data, dimensionKeys, groupedData, latestMonth]
+  );
+
+  const currentMonthTotal = useMemo(() => {
+    return Object.values(groupedData).reduce((sum, serviceData) => {
+      return sum + (serviceData[latestMonth] || 0);
+    }, 0);
+  }, [groupedData, latestMonth]);
+
+  const highestPercentage = useMemo(() => {
+    const firstService = processedData[0]?.[dimensionKeys[0]]?.value;
+    if (!firstService) return 0;
+    const highestRevenue = groupedData[firstService]?.[latestMonth] || 0;
+    return (highestRevenue / currentMonthTotal) * 100;
+  }, [processedData, dimensionKeys, groupedData, latestMonth, currentMonthTotal]);
+
+  const columns = useMemo(
+    () => [
+      {
+        Header: 'Service',
+        accessor: row => row[dimensionKeys[0]].value,
+        width: 200,
+      },
+      {
+        Header: 'Current Month Revenue',
+        accessor: row => row[dimensionKeys[0]].value,
+        Cell: ({ value }) => {
+          const revenue = groupedData[value]?.[latestMonth] || 0;
+          return new Intl.NumberFormat('en-US', { 
+            style: 'currency', 
+            currency: 'USD',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+          }).format(revenue);
+        },
+        width: 200,
+      },
+      {
+        Header: 'Growth',
+        accessor: row => row[dimensionKeys[0]].value,
+        Cell: ({ value }) => {
+          const sparklineData = getLast12Months(groupedData, value, allDates, latestMonth);
+          const trend = getTrend(sparklineData);
+          const sparklineColor = trend === 'up' 
+            ? (config.upSparklineColor || '#34D058')
+            : (config.downSparklineColor || '#FF4B4B');
+          
+          return (
+            <Sparklines data={sparklineData} width={100} height={20}>
+              <SparklinesLine color={sparklineColor} />
+            </Sparklines>
+          );
+        },
+        width: 150,
+      },
+      {
+        Header: '% of Total',
+        accessor: row => row[dimensionKeys[0]].value,
+        Cell: ({ value }) => {
+          const revenue = groupedData[value]?.[latestMonth] || 0;
+          const percentage = (revenue / currentMonthTotal) * 100;
+          const scaledWidth = (percentage / highestPercentage) * 100;
+          
+          return (
+            <PercentageBarContainer>
+              <span>{`${percentage.toFixed(1)}%`}</span>
+              <PercentageBar backgroundColor={config.chartBackgroundColor || '#eee'}>
+                <PercentageFill 
+                  width={scaledWidth}
+                  barColor={config.chartBarColor || '#4A90E2'} // Use config color or default to blue
+                />
+              </PercentageBar>
+            </PercentageBarContainer>
+          );
+        },
+        width: 200,
+      }
+    ],
+    [groupedData, latestMonth, currentMonthTotal, dimensionKeys, allDates, processedData, highestPercentage, config.chartBarColor, config.chartBackgroundColor, config.upSparklineColor, config.downSparklineColor]
+  );
+
   console.log("columns", columns)
 
   return (
-    <Styles config={config} rowCount={data.length}>
-
+    <Styles config={config} rowCount={processedData.length}>
+      {config.chartTitle && <TableTitle>{config.chartTitle}</TableTitle>}
       <Table
         config={config}
         columns={columns}
-        data={data}
-
+        data={processedData}
       />
-
-
     </Styles>
   );
-
+  done();
 }
